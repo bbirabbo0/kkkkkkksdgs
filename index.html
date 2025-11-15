@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>보선녀 리듬게임</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Pretendard", system-ui, sans-serif;
+      background: #000;
+      color: #222;
+    }
+
+    .wrap {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    /* 🎨 캔버스 배경 = 보선녀 사진 */
+    canvas {
+      width: 600px;
+      height: 500px;
+      border-radius: 20px;
+      background: url("bg.jpg") center/cover no-repeat;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.6);
+    }
+
+    .panel {
+      width: 260px;
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 10px 26px rgba(0,0,0,0.5);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    button {
+      margin-top: 8px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: none;
+      background: #ff7ac2;
+      color: white;
+      font-size: 13px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .keys { font-weight: 600; }
+    .combo { font-weight: 700; color: #ff4ca3; }
+    .tap-hint { margin-top: 8px; font-size: 12px; color:#555; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <canvas id="game" width="600" height="500"></canvas>
+
+    <div class="panel">
+      <h2>보선녀 리듬게임 🎵</h2>
+      <p>노래 재생 후, 판정선에서 <b>D F J K</b>를 눌러보세요.</p>
+      <p class="keys">키 : D · F · J · K</p>
+
+      <p>점수: <span id="score">0</span></p>
+      <p>콤보: <span id="combo" class="combo">0</span></p>
+      <p>판정: <span id="judge">-</span></p>
+
+      <button id="startBtn">▶ 노래 시작 / 일시정지</button>
+      <button id="tapBtn">🎼 박자 찍기 모드</button>
+      <p class="tap-hint">
+        박자 찍기 모드에서<br>
+        스페이스바를 박자에 맞게 누르면<br>
+        콘솔에 시간이 찍혀요.
+      </p>
+    </div>
+  </div>
+
+  <!-- 노래 파일 -->
+  <audio id="bgm" src="soso.m4a" preload="auto"></audio>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const bgm = document.getElementById("bgm");
+
+    const startBtn = document.getElementById("startBtn");
+    const tapBtn = document.getElementById("tapBtn");
+
+    const scoreEl = document.getElementById("score");
+    const comboEl = document.getElementById("combo");
+    const judgeEl = document.getElementById("judge");
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const columns = 4;
+    const keyMap = ["d","f","j","k"];
+    const colW = W / columns;
+    const judgeLineY = H - 80;
+    const noteSpeed = 260; // px/sec
+
+    let notes = [];
+    let started = false;
+    let startPerfTime = 0;
+    let score = 0;
+    let combo = 0;
+    let lastJudge = "-";
+    let lastJudgeTimer = 0;
+
+    // 🎵 보선녀가 찍은 박자 리스트 + column 섞어줌 (0,1,2,3 반복)
+    // column: 0=D, 1=F, 2=J, 3=K
+    const chart = [
+      { time: 2.20, column: 0 },
+      { time: 3.11, column: 1 },
+      { time: 4.24, column: 2 },
+      { time: 5.19, column: 3 },
+      { time: 6.17, column: 0 },
+      { time: 7.21, column: 1 },
+      { time: 8.18, column: 2 },
+      { time: 9.17, column: 3 },
+      { time: 10.19, column: 0 },
+      { time: 11.25, column: 1 },
+      { time: 11.74, column: 2 },
+      { time: 12.23, column: 3 },
+      { time: 12.71, column: 0 },
+      { time: 13.22, column: 1 },
+      { time: 13.72, column: 2 },
+      { time: 14.24, column: 3 },
+      { time: 14.73, column: 0 },
+      { time: 15.22, column: 1 },
+      { time: 15.72, column: 2 },
+      { time: 16.22, column: 3 },
+      { time: 16.73, column: 0 },
+      { time: 17.19, column: 1 },
+      { time: 17.70, column: 2 },
+      { time: 18.21, column: 3 },
+      { time: 18.47, column: 0 },
+      { time: 18.67, column: 1 },
+      { time: 19.00, column: 2 },
+      { time: 19.21, column: 3 },
+      { time: 19.74, column: 0 },
+      { time: 20.23, column: 1 },
+      { time: 20.75, column: 2 },
+      { time: 21.22, column: 3 },
+      { time: 21.72, column: 0 },
+      { time: 22.20, column: 1 },
+      { time: 22.70, column: 2 },
+      { time: 23.21, column: 3 },
+      { time: 23.74, column: 0 },
+      { time: 24.24, column: 1 },
+      { time: 24.74, column: 2 },
+      { time: 25.23, column: 3 },
+      { time: 25.73, column: 0 },
+      { time: 26.22, column: 1 },
+      { time: 26.40, column: 2 },
+      { time: 26.59, column: 3 },
+      { time: 26.74, column: 0 },
+      { time: 26.91, column: 1 },
+      { time: 27.07, column: 2 },
+      { time: 27.23, column: 3 },
+      { time: 27.66, column: 0 },
+      { time: 28.20, column: 1 },
+      { time: 28.71, column: 2 },
+      { time: 29.23, column: 3 },
+      { time: 29.66, column: 0 },
+      { time: 30.01, column: 1 },
+      { time: 30.29, column: 2 },
+      { time: 30.70, column: 3 },
+      { time: 31.17, column: 0 },
+      { time: 31.51, column: 1 },
+      { time: 31.69, column: 2 },
+      { time: 32.01, column: 3 },
+      { time: 32.22, column: 0 },
+      { time: 32.57, column: 1 },
+      { time: 32.73, column: 2 },
+      { time: 33.03, column: 3 },
+      { time: 33.25, column: 0 },
+      { time: 33.37, column: 1 },
+      { time: 33.56, column: 2 },
+      { time: 33.70, column: 3 },
+      { time: 33.87, column: 0 },
+      { time: 34.17, column: 1 },
+      { time: 34.44, column: 2 },
+      { time: 34.62, column: 3 },
+      { time: 34.97, column: 0 },
+      { time: 35.16, column: 1 },
+      { time: 35.71, column: 2 },
+      { time: 36.73, column: 3 },
+      { time: 37.73, column: 0 },
+      { time: 38.75, column: 1 },
+      { time: 39.72, column: 2 },
+      { time: 39.74, column: 3 },
+      { time: 40.71, column: 0 },
+      { time: 41.73, column: 1 },
+      { time: 42.22, column: 2 },
+      { time: 42.72, column: 3 },
+      { time: 43.00, column: 0 },
+      { time: 43.24, column: 1 },
+      { time: 43.67, column: 2 },
+      { time: 44.20, column: 3 },
+      { time: 44.56, column: 0 },
+      { time: 44.76, column: 1 },
+      { time: 45.02, column: 2 },
+      { time: 45.52, column: 3 },
+      { time: 46.00, column: 0 },
+      { time: 46.97, column: 1 },
+      { time: 47.16, column: 2 },
+      { time: 47.64, column: 3 },
+      { time: 48.15, column: 0 },
+      { time: 48.54, column: 1 },
+      { time: 48.72, column: 2 },
+      { time: 49.04, column: 3 },
+      { time: 49.68, column: 0 },
+      { time: 50.18, column: 1 },
+      { time: 50.69, column: 2 },
+      { time: 51.00, column: 3 },
+      { time: 51.18, column: 0 },
+      { time: 51.66, column: 1 },
+      { time: 52.17, column: 2 },
+      { time: 52.53, column: 3 },
+      { time: 52.69, column: 0 },
+      { time: 52.96, column: 1 },
+      { time: 53.47, column: 2 },
+      { time: 53.99, column: 3 },
+      { time: 55.17, column: 0 },
+      { time: 55.55, column: 1 },
+      { time: 55.72, column: 2 },
+      { time: 56.01, column: 3 },
+      { time: 56.17, column: 0 },
+      { time: 56.67, column: 1 },
+      { time: 57.01, column: 2 },
+      { time: 57.18, column: 3 },
+      { time: 57.36, column: 0 },
+      { time: 57.53, column: 1 },
+      { time: 57.71, column: 2 },
+      { time: 57.87, column: 3 },
+      { time: 58.05, column: 0 },
+      { time: 58.21, column: 1 },
+      { time: 58.38, column: 2 },
+      { time: 58.54, column: 3 },
+      { time: 58.70, column: 0 },
+      { time: 59.14, column: 1 },
+      { time: 59.71, column: 2 },
+      { time: 60.25, column: 3 },
+      { time: 60.75, column: 0 },
+      { time: 61.24, column: 1 },
+      { time: 61.74, column: 2 },
+      { time: 62.24, column: 3 },
+      { time: 62.71, column: 0 },
+      { time: 63.21, column: 1 },
+      { time: 63.61, column: 2 },
+      { time: 64.03, column: 3 },
+      { time: 64.20, column: 0 },
+      { time: 64.50, column: 1 },
+      { time: 64.68, column: 2 },
+      { time: 65.08, column: 3 },
+      { time: 65.23, column: 0 },
+      { time: 65.69, column: 1 },
+      { time: 66.22, column: 2 },
+      { time: 66.49, column: 3 },
+      { time: 66.64, column: 0 },
+      { time: 67.03, column: 1 },
+      { time: 67.22, column: 2 },
+      { time: 67.70, column: 3 },
+      { time: 68.22, column: 0 },
+      { time: 68.72, column: 1 },
+      { time: 69.22, column: 2 },
+      { time: 69.78, column: 3 },
+      { time: 70.28, column: 0 },
+      { time: 70.74, column: 1 },
+      { time: 71.25, column: 2 },
+      { time: 71.79, column: 3 },
+      { time: 72.29, column: 0 },
+      { time: 72.76, column: 1 },
+      { time: 73.25, column: 2 },
+      { time: 73.73, column: 3 },
+      { time: 74.23, column: 0 },
+      { time: 74.73, column: 1 },
+      { time: 75.19, column: 2 },
+      { time: 75.43, column: 3 },
+      { time: 75.65, column: 0 },
+      { time: 75.91, column: 1 },
+      { time: 76.13, column: 2 },
+      { time: 76.30, column: 3 },
+      { time: 76.75, column: 0 },
+      { time: 77.23, column: 1 },
+      { time: 77.43, column: 2 },
+      { time: 77.62, column: 3 },
+      { time: 77.83, column: 0 },
+      { time: 78.08, column: 1 },
+      { time: 78.25, column: 2 },
+      { time: 78.73, column: 3 },
+      { time: 79.22, column: 0 },
+      { time: 80.25, column: 1 },
+      { time: 81.23, column: 2 },
+      { time: 81.72, column: 3 },
+      { time: 82.19, column: 0 },
+      { time: 82.53, column: 1 },
+      { time: 82.68, column: 2 },
+      { time: 83.03, column: 3 },
+      { time: 83.20, column: 0 },
+      { time: 84.23, column: 1 },
+      { time: 85.20, column: 2 },
+      { time: 86.06, column: 3 },
+      { time: 87.53, column: 0 },
+      { time: 88.03, column: 1 },
+      { time: 88.55, column: 2 },
+      { time: 89.01, column: 3 },
+      { time: 89.35, column: 0 },
+      { time: 89.66, column: 1 },
+      { time: 90.01, column: 2 },
+      { time: 90.32, column: 3 },
+      { time: 90.66, column: 0 },
+      { time: 91.19, column: 1 },
+      { time: 91.68, column: 2 },
+      { time: 92.54, column: 3 },
+      { time: 93.02, column: 0 },
+      { time: 93.58, column: 1 },
+      { time: 94.02, column: 2 },
+      { time: 95.24, column: 3 },
+      { time: 95.71, column: 0 },
+      { time: 96.16, column: 1 },
+      { time: 96.54, column: 2 },
+      { time: 96.72, column: 3 },
+      { time: 97.03, column: 0 },
+      { time: 97.72, column: 1 },
+      { time: 98.24, column: 2 },
+      { time: 99.04, column: 3 },
+      { time: 99.70, column: 0 },
+      { time: 100.23, column: 1 },
+      { time: 100.58, column: 2 },
+      { time: 100.72, column: 3 },
+      { time: 101.05, column: 0 },
+      { time: 101.54, column: 1 },
+      { time: 102.09, column: 2 },
+      { time: 102.69, column: 3 },
+      { time: 103.19, column: 0 },
+      { time: 103.72, column: 1 },
+      { time: 104.26, column: 2 },
+      { time: 104.77, column: 3 },
+      { time: 105.22, column: 0 },
+      { time: 105.67, column: 1 },
+      { time: 106.16, column: 2 },
+      { time: 106.71, column: 3 },
+      { time: 107.24, column: 0 },
+      { time: 107.71, column: 1 },
+      { time: 108.06, column: 2 },
+      { time: 109.17, column: 3 },
+      { time: 109.65, column: 0 },
+      { time: 110.01, column: 1 },
+      { time: 111.23, column: 2 },
+      { time: 111.73, column: 3 },
+      { time: 112.18, column: 0 },
+      { time: 112.67, column: 1 },
+      { time: 113.44, column: 2 },
+      { time: 114.15, column: 3 },
+      { time: 114.66, column: 0 },
+      { time: 115.19, column: 1 },
+      { time: 115.55, column: 2 },
+      { time: 115.73, column: 3 },
+      { time: 116.10, column: 0 },
+      { time: 116.25, column: 1 },
+      { time: 116.68, column: 2 },
+      { time: 117.16, column: 3 },
+      { time: 117.61, column: 0 },
+      { time: 117.99, column: 1 },
+      { time: 118.18, column: 2 },
+      { time: 118.72, column: 3 },
+      { time: 119.18, column: 0 },
+      { time: 119.69, column: 1 },
+      { time: 120.21, column: 2 },
+      { time: 120.68, column: 3 },
+      { time: 121.18, column: 0 },
+      { time: 121.40, column: 1 },
+      { time: 121.65, column: 2 },
+      { time: 121.94, column: 3 },
+      { time: 122.15, column: 0 },
+      { time: 122.63, column: 1 },
+      { time: 123.14, column: 2 },
+      { time: 123.73, column: 3 },
+      { time: 124.23, column: 0 },
+      { time: 124.73, column: 1 },
+      { time: 125.22, column: 2 },
+      { time: 125.73, column: 3 },
+      { time: 126.21, column: 0 },
+      { time: 126.68, column: 1 },
+      { time: 127.18, column: 2 },
+      { time: 127.70, column: 3 },
+      { time: 128.19, column: 0 },
+      { time: 128.67, column: 1 },
+      { time: 129.15, column: 2 },
+      { time: 129.67, column: 3 },
+      { time: 130.20, column: 0 },
+      { time: 130.63, column: 1 },
+      { time: 131.26, column: 2 },
+      { time: 131.72, column: 3 },
+      { time: 132.22, column: 0 },
+      { time: 132.76, column: 1 },
+      { time: 133.01, column: 2 },
+      { time: 133.48, column: 3 },
+      { time: 133.64, column: 0 },
+      { time: 133.87, column: 1 },
+      { time: 134.15, column: 2 },
+      { time: 134.51, column: 3 },
+      { time: 134.68, column: 0 },
+      { time: 135.03, column: 1 },
+      { time: 135.47, column: 2 },
+      { time: 135.69, column: 3 },
+      { time: 135.98, column: 0 },
+      { time: 136.20, column: 1 },
+      { time: 136.36, column: 2 },
+      { time: 136.56, column: 3 },
+      { time: 136.76, column: 0 },
+      { time: 137.08, column: 1 },
+      { time: 137.26, column: 2 },
+      { time: 137.74, column: 3 },
+      { time: 138.21, column: 0 },
+      { time: 138.79, column: 1 },
+      { time: 139.25, column: 2 },
+      { time: 139.44, column: 3 },
+      { time: 139.62, column: 0 },
+      { time: 139.78, column: 1 },
+      { time: 139.95, column: 2 },
+      { time: 140.13, column: 3 },
+      { time: 140.30, column: 0 },
+      { time: 140.46, column: 1 },
+      { time: 140.76, column: 2 },
+      { time: 141.08, column: 3 },
+      { time: 141.50, column: 0 },
+      { time: 141.69, column: 1 },
+      { time: 142.04, column: 2 },
+      { time: 142.58, column: 3 },
+      { time: 142.76, column: 0 },
+      { time: 143.06, column: 1 },
+      { time: 143.24, column: 2 },
+      { time: 143.44, column: 3 },
+      { time: 143.59, column: 0 },
+      { time: 143.79, column: 1 },
+      { time: 144.08, column: 2 },
+      { time: 144.21, column: 3 },
+      { time: 144.53, column: 0 },
+      { time: 144.71, column: 1 },
+      { time: 145.03, column: 2 },
+      { time: 145.55, column: 3 },
+      { time: 146.21, column: 0 },
+      { time: 146.54, column: 1 },
+      { time: 146.63, column: 2 },
+      { time: 147.06, column: 3 },
+      { time: 147.22, column: 0 },
+      { time: 147.70, column: 1 },
+      { time: 148.22, column: 2 },
+      { time: 148.72, column: 3 },
+      { time: 149.70, column: 0 },
+      { time: 150.26, column: 1 },
+      { time: 151.47, column: 2 },
+      { time: 152.00, column: 3 },
+      { time: 152.53, column: 0 },
+      { time: 153.20, column: 1 },
+      { time: 153.75, column: 2 },
+      { time: 154.26, column: 3 },
+      { time: 154.77, column: 0 },
+      { time: 155.55, column: 1 },
+      { time: 156.04, column: 2 },
+      { time: 157.25, column: 3 },
+      { time: 157.59, column: 0 },
+      { time: 158.01, column: 1 },
+      { time: 159.19, column: 2 },
+      { time: 159.72, column: 3 },
+      { time: 160.18, column: 0 },
+      { time: 160.69, column: 1 },
+      { time: 161.21, column: 2 },
+      { time: 161.42, column: 3 },
+      { time: 161.61, column: 0 },
+      { time: 161.80, column: 1 },
+      { time: 162.03, column: 2 },
+      { time: 162.24, column: 3 },
+      { time: 163.17, column: 0 },
+      { time: 164.20, column: 1 },
+      { time: 165.23, column: 2 },
+      { time: 165.61, column: 3 },
+      { time: 166.01, column: 0 },
+      { time: 167.17, column: 1 },
+      { time: 167.68, column: 2 },
+      { time: 168.16, column: 3 },
+      { time: 168.58, column: 0 },
+      { time: 169.03, column: 1 },
+      { time: 171.27, column: 2 },
+      { time: 171.73, column: 3 },
+      { time: 172.04, column: 0 },
+      { time: 172.21, column: 1 },
+      { time: 172.56, column: 2 },
+      { time: 172.73, column: 3 },
+      { time: 173.06, column: 0 },
+      { time: 173.21, column: 1 },
+      { time: 173.57, column: 2 },
+      { time: 174.11, column: 3 },
+      { time: 175.02, column: 0 },
+      { time: 175.22, column: 1 },
+      { time: 175.64, column: 2 },
+      { time: 176.13, column: 3 },
+      { time: 176.68, column: 0 },
+      { time: 177.21, column: 1 },
+      { time: 177.72, column: 2 },
+      { time: 178.20, column: 3 },
+      { time: 178.76, column: 0 },
+      { time: 179.19, column: 1 },
+      { time: 179.40, column: 2 },
+      { time: 179.58, column: 3 },
+      { time: 179.78, column: 0 },
+      { time: 179.96, column: 1 },
+      { time: 180.13, column: 2 },
+      { time: 180.32, column: 3 },
+      { time: 180.49, column: 0 },
+      { time: 180.69, column: 1 },
+      { time: 180.87, column: 2 },
+      { time: 181.06, column: 3 },
+      { time: 181.21, column: 0 },
+      { time: 181.58, column: 1 },
+      { time: 182.22, column: 2 },
+      { time: 182.77, column: 3 },
+      { time: 183.73, column: 0 },
+      { time: 184.68, column: 1 },
+      { time: 185.74, column: 2 },
+      { time: 186.75, column: 3 },
+      { time: 187.74, column: 0 },
+      { time: 188.76, column: 1 },
+      { time: 189.76, column: 2 },
+      { time: 190.71, column: 3 },
+      { time: 191.69, column: 0 },
+      { time: 192.66, column: 1 },
+      { time: 193.72, column: 2 },
+      { time: 194.68, column: 3 },
+      { time: 195.68, column: 0 },
+      { time: 196.70, column: 1 },
+      { time: 197.74, column: 2 },
+      { time: 198.74, column: 3 },
+      { time: 199.71, column: 0 },
+      { time: 200.70, column: 1 },
+      { time: 201.27, column: 2 },
+      { time: 201.71, column: 3 },
+      { time: 201.74, column: 0 },
+      { time: 202.21, column: 1 },
+      { time: 202.71, column: 2 },
+    ];
+
+    let tapMode = false;
+
+    // 박자 찍기 모드 토글
+    tapBtn.addEventListener("click", () => {
+      tapMode = !tapMode;
+      tapBtn.textContent = tapMode ? "✅ 박자 찍는 중 (Space)" : "🎼 박자 찍기 모드";
+    });
+
+    // 키 입력
+    window.addEventListener("keydown", (e) => {
+      if (tapMode && e.code === "Space") {
+        console.log(`{ time: ${bgm.currentTime.toFixed(2)}, column: 0 },`);
+      }
+      handleHit(e.key.toLowerCase());
+    });
+// 📱 캔버스 터치 입력 (폰/태블릿용)
+canvas.addEventListener("touchstart", (e) => {
+  e.preventDefault(); // 화면 스크롤 방지
+
+  const touch = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  const x = touch.clientX - rect.left;
+
+  // 터치된 위치가 몇 번째 칼럼인지 계산 (0~3)
+  const idx = Math.floor(x / colW);
+
+  if (idx >= 0 && idx < columns) {
+    // keyMap[0] = 'd', [1] = 'f', [2] = 'j', [3] = 'k'
+    handleHit(keyMap[idx]);
+  }
+});
+
+    // 노래 시작 / 일시정지
+    startBtn.addEventListener("click", () => {
+      if (bgm.paused) {
+        bgm.play();
+        if (!started) {
+          started = true;
+          startPerfTime = performance.now();
+        }
+      } else {
+        bgm.pause();
+      }
+    });
+
+    // 노트 생성 (time = 판정선 도착 시점, travelTime만큼 일찍 생성)
+    function spawnNotes() {
+      if (!started) return;
+      const now = (performance.now() - startPerfTime) / 1000;
+      const travelTime = (judgeLineY - (-20)) / noteSpeed;
+
+      for (let n of chart) {
+        if (!n.spawned && now >= n.time - travelTime) {
+          n.spawned = true;
+          notes.push({ column: n.column, y: -20, active: true });
+        }
+      }
+    }
+
+    // 🎨 라인/판정선/키 표시 + 배경 사진 살려서 그리기
+    function drawLane() {
+      ctx.clearRect(0, 0, W, H);
+
+      ctx.fillStyle = "rgba(0,0,0,0.10)";
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.strokeStyle = "rgba(255,255,255,0.45)";
+      ctx.lineWidth = 2;
+      for (let i = 1; i < columns; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * colW, 0);
+        ctx.lineTo(i * colW, H);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#7ab3ff";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, judgeLineY);
+      ctx.lineTo(W, judgeLineY);
+      ctx.stroke();
+
+      ctx.fillStyle = "#fefefe";
+      ctx.font = "18px system-ui";
+      ctx.textAlign = "center";
+      for (let i = 0; i < columns; i++) {
+        const x = i * colW + colW / 2;
+        ctx.fillText(keyMap[i].toUpperCase(), x, H - 20);
+      }
+    }
+
+    // 노트 이동 + 그리기
+    function drawNotes(dt) {
+      const dy = noteSpeed * (dt / 1000);
+
+      for (let n of notes) {
+        if (n.active) n.y += dy;
+      }
+
+      for (let n of notes) {
+        if (!n.active) continue;
+        const x = n.column * colW + 10;
+        const w = colW - 20;
+        ctx.fillStyle = "#ff5fae";
+        ctx.fillRect(x, n.y, w, 20);
+      }
+
+      for (let n of notes) {
+        if (n.active && n.y > judgeLineY + 60) {
+          n.active = false;
+          combo = 0;
+          showJudge("Miss");
+        }
+      }
+    }
+
+    // 키 판정
+    function handleHit(key) {
+      const idx = keyMap.indexOf(key);
+      if (idx === -1) return;
+
+      let best = null;
+      let distMin = Infinity;
+
+      for (let n of notes) {
+        if (!n.active || n.column !== idx) continue;
+        const d = Math.abs(n.y - judgeLineY);
+        if (d < distMin) {
+          distMin = d;
+          best = n;
+        }
+      }
+
+      if (!best) {
+        combo = 0;
+        showJudge("Miss");
+        return;
+      }
+
+      if (distMin <= 25) {
+        best.active = false;
+        score += 1000;
+        combo++;
+        showJudge("Perfect");
+      } else if (distMin <= 55) {
+        best.active = false;
+        score += 500;
+        combo++;
+        showJudge("Good");
+      } else {
+        best.active = false;
+        combo = 0;
+        showJudge("Miss");
+      }
+    }
+
+    function showJudge(t) {
+      lastJudge = t;
+      lastJudgeTimer = 300;
+      scoreEl.textContent = score;
+      comboEl.textContent = combo;
+      judgeEl.textContent = lastJudge;
+    }
+
+    let last = 0;
+    function loop(t) {
+      const dt = t - last;
+      last = t;
+
+      if (lastJudgeTimer > 0) {
+        lastJudgeTimer -= dt;
+        if (lastJudgeTimer <= 0) judgeEl.textContent = "-";
+      }
+
+      drawLane();
+      spawnNotes();
+      drawNotes(dt);
+
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
